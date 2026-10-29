@@ -1,55 +1,83 @@
 # NetCross-s390x 🚀
 
-[![Multi-Arch Build & Test CI](https://img.shields.io/badge/CI-Multi--Arch%20(s390x%20%2F%20amd64%20%2F%20arm64)-brightgreen.svg)]()
+[![Multi-Arch Build & Test CI](https://github.com/CHENBai-yi/netcross-s390x/actions/workflows/ci.yml/badge.svg)](https://github.com/CHENBai-yi/netcross-s390x/actions/workflows/ci.yml)
 [![Go Report Card](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Architecture](https://img.shields.io/badge/Architecture-IBM%20s390x%20(Big--Endian)-purple.svg)]()
+[![Prometheus Ready](https://img.shields.io/badge/Prometheus-Metrics%20Exporter-orange.svg)]()
 
-**NetCross-s390x** is an open-source lightweight diagnostics and network latency benchmarking toolkit designed specifically for validating cross-platform networking, Big-Endian byte-order compatibility, and TLS handshake performance on **IBM Z and IBM LinuxONE (`s390x`)** mainframes and standard hybrid cloud environments.
+**NetCross-s390x** is an open-source, production-grade network diagnostics engine, latency prober, and Prometheus metrics exporter tailored for **IBM Z and LinuxONE (`s390x`)** mainframes and heterogeneous hybrid-cloud environments.
 
 ---
 
 ## 🌟 Key Features
 
-- **Native Big-Endian (`s390x`) Detection**: Dynamic runtime validation of memory alignment and byte ordering (distinguishing between Little-Endian and IBM LinuxONE native Big-Endian systems).
-- **Sub-millisecond Precision Network Benchmarking**: Evaluates raw TCP connect latency, TLS 1.3 handshake negotiation time, and HTTP round-trip metrics.
-- **Zero-Dependency Compilation**: Clean Go implementation with zero external heavy CGO dependencies, perfectly suited for containerized environments and CI/CD pipelines.
+- **Native Big-Endian (`s390x`) Verification**: Dynamic runtime verification of memory alignment, pointer arithmetic, and IEEE 754 floating-point serialization on native IBM zSeries hardware.
+- **Microsecond-Precision TCP/TLS Telemetry**: Measures sub-millisecond TCP handshake latency, TLS 1.3 negotiation speed, and HTTP status codes across distributed cloud regions.
+- **Industrial Prometheus Exporter**: Embedded `/metrics` HTTP daemon exporting standards-compliant metrics for Grafana dashboards and Prometheus alerting.
+- **Mainframe Hardware Discovery**: Deep inspection of `/proc/cpuinfo` parsing native IBM machine types (e.g. `z15 / LinuxONE III Model 9175`), cryptographic engines (`crypto/msa`), and on-chip neural processors (`nnpa`).
 - **Continuous Integration for Linux on Z**: Built-in GitHub Actions matrix targeting `linux/s390x`, `linux/arm64`, and `linux/amd64`.
 
 ---
 
-## 📋 Architecture & Design
+## 📋 Architecture & Data Flow
 
 ```
-+-------------------------------------------------------------+
-|                     NetCross-s390x Engine                   |
-+------------------------------+------------------------------+
-                               |
-            +------------------+------------------+
-            |                                     |
-   [Endianness Detector]                 [Latency Prober]
-  - Validates pointer cast              - TCP Syn/Ack Timing
-  - Distinguishes LE vs BE              - TLS 1.3 Handshake
-  - Ensures s390x Memory Safety         - HTTP/2 Status Verification
++------------------------------------------------------------------------+
+|                         NetCross-s390x Engine                          |
++-----------------------------------+------------------------------------+
+                                    |
+            +-----------------------+-----------------------+
+            |                                               |
+   [Endianness & Hardware]                         [Active Prober Engine]
+  - Big-Endian IEEE 754 check                     - Parallel TCP/TLS timing
+  - Machine Type 9175 discovery                   - Multi-target jitter metrics
+            |                                               |
+            +-----------------------+-----------------------+
+                                    |
+                    +---------------+---------------+
+                    |                               |
+             [CLI / JSON Mode]             [Prometheus Daemon]
+             One-shot diagnostics          Serves :9100/metrics
 ```
 
 ---
 
-## 🛠️ Quick Start
+## 🛠️ Usage Guide
 
-### 1. Build locally
+### 1. Run One-Shot Diagnostics (CLI)
 ```bash
-go build -o netcross main.go
 ./netcross
 ```
 
-### 2. Cross-compile for IBM LinuxONE (`s390x`)
+### 2. Export Structured JSON Report
 ```bash
-GOOS=linux GOARCH=s390x go build -ldflags "-s -w" -o netcross-linux-s390x main.go
+./netcross -json
+```
+
+### 3. Launch Prometheus Exporter Daemon
+```bash
+./netcross -listen :9100 -interval 15
+```
+
+Fetch metrics anytime via:
+```bash
+curl http://localhost:9100/metrics
+```
+
+Example metrics output:
+```text
+# HELP netcross_system_info Static hardware and architecture profile
+# TYPE netcross_system_info gauge
+netcross_system_info{arch="s390x",machine_type="9175",num_cpu="2"} 1
+
+# HELP netcross_probe_tcp_connect_seconds TCP handshake duration in seconds
+# TYPE netcross_probe_tcp_connect_seconds gauge
+netcross_probe_tcp_connect_seconds{target="1.1.1.1:443"} 0.008657
 ```
 
 ---
 
 ## 📄 License
 
-This project is licensed under the [MIT License](./LICENSE). Contributions and pull requests for LinuxONE / s390x optimizations are welcome!
+Licensed under the [MIT License](./LICENSE). Contributions and PRs for mainframe Linux optimizations are warmly welcomed!
