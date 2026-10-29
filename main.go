@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/open-mainframe-mesh/netcross-s390x/pkg/endian"
-	"github.com/open-mainframe-mesh/netcross-s390x/pkg/netbench"
-	"github.com/open-mainframe-mesh/netcross-s390x/pkg/sysinfo"
+	"github.com/CHENBai-yi/netcross-s390x/pkg/endian"
+	"github.com/CHENBai-yi/netcross-s390x/pkg/netbench"
+	"github.com/CHENBai-yi/netcross-s390x/pkg/sysinfo"
 )
 
 func main() {
