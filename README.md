@@ -514,6 +514,45 @@ which is why the checksum is not a throughput concern for a telemetry path.
 
 ---
 
+---
+
+## 🏛️ Why this needs a permanent s390x host
+
+This project is developed and validated on an IBM LinuxONE Community Cloud
+instance (machine type 9175, Ubuntu 22.04). That instance is a **60-day trial**,
+which is the wrong shape for what this tool exists to do.
+
+**What a trial window cannot support:**
+
+1. **Long-horizon network baselines.** Latency and jitter on a mainframe are
+   only meaningful across weeks — routing shifts, peer maintenance windows and
+   congestion patterns all have multi-day periodicity. A 60-day window that ends
+   mid-measurement throws the series away.
+2. **Continuous CI.** The value of an s390x CI target comes from running it on
+   every upstream change, indefinitely. A CI runner that expires is a one-off
+   port, not a pipeline.
+3. **Cross-version regression.** Verifying that a big-endian wire format stays
+   byte-identical across Go releases requires several toolchains installed
+   side by side on the same s390x host, over months.
+4. **Acting as a reference implementation.** Other projects porting to s390x need
+   a known-good, continuously-running example to diff against.
+
+**What the permanent VM would run:**
+
+- A nightly multi-target network probe with a rolling baseline store
+  (`--baseline-check` fails the run when latency regresses beyond tolerance).
+- The Prometheus exporter as a long-lived service, scraped continuously, so
+  phase-level latency trends are visible instead of sampled once.
+- Multi-toolchain builds (Go 1.22 / 1.23 / 1.24) validating that the wire codec
+  produces identical bytes on every release.
+- Periodic IPv6 dual-stack reachability sweeps.
+
+**Validated on:** IBM LinuxONE III, machine type `9175`, Ubuntu 22.04 LTS,
+`s390x` big-endian, Go 1.23.2. Frame encode sustains ~4 GB/s per vCPU including
+CRC-32C.
+
+---
+
 ## 📄 License
 
 Licensed under the [MIT License](./LICENSE). Contributions and PRs for mainframe
