@@ -148,19 +148,21 @@ func rank(sorted []float64, p float64) float64 {
 
 // ConcurrentResult is the aggregate of a concurrent run against one target.
 type ConcurrentResult struct {
-	Target      string         `json:"target"`
-	Concurrency int            `json:"concurrency"`
-	Requests    int            `json:"requests"`
-	Succeeded   int            `json:"succeeded"`
-	Failed      int            `json:"failed"`
-	Duration    time.Duration  `json:"duration_ns"`
-	RPS         float64        `json:"requests_per_second"`
-	SuccessRate float64        `json:"success_rate"`
-	Latency     Percentiles    `json:"latency"`
-	TCP         Percentiles    `json:"tcp_connect"`
-	TLS         Percentiles    `json:"tls_handshake"`
-	TTFB        Percentiles    `json:"ttfb"`
-	Errors      map[string]int `json:"errors,omitempty"`
+	Target      string        `json:"target"`
+	Concurrency int           `json:"concurrency"`
+	Requests    int           `json:"requests"`
+	Succeeded   int           `json:"succeeded"`
+	Failed      int           `json:"failed"`
+	Duration    time.Duration `json:"duration_ns"`
+	RPS         float64       `json:"requests_per_second"`
+	SuccessRate float64       `json:"success_rate"`
+	Latency     Percentiles   `json:"latency"`
+	// DNSMean is the mean name-resolution time, zero for IP-literal targets.
+	DNSMean float64        `json:"dns_resolve_mean_ms"`
+	TCP     Percentiles    `json:"tcp_connect"`
+	TLS     Percentiles    `json:"tls_handshake"`
+	TTFB    Percentiles    `json:"ttfb"`
+	Errors  map[string]int `json:"errors,omitempty"`
 }
 
 // Config controls a concurrent benchmark run.
@@ -422,6 +424,7 @@ func aggregate(res *ConcurrentResult, samples []Sample) {
 	}
 	res.Requests = len(samples)
 	total := make([]float64, 0, len(samples))
+	var dnsSum float64
 	tcp := make([]float64, 0, len(samples))
 	tlsv := make([]float64, 0, len(samples))
 	ttfb := make([]float64, 0, len(samples))
@@ -429,6 +432,7 @@ func aggregate(res *ConcurrentResult, samples []Sample) {
 	for _, s := range samples {
 		if s.OK {
 			res.Succeeded++
+			dnsSum += ms(s.Phases.DNSResolve)
 			total = append(total, ms(s.Phases.Total))
 			tcp = append(tcp, ms(s.Phases.TCPConnect))
 			tlsv = append(tlsv, ms(s.Phases.TLSHandshake))
@@ -441,6 +445,9 @@ func aggregate(res *ConcurrentResult, samples []Sample) {
 			}
 			res.Errors[key]++
 		}
+	}
+	if res.Succeeded > 0 {
+		res.DNSMean = dnsSum / float64(res.Succeeded)
 	}
 	res.Latency = Percentile(total)
 	res.TCP = Percentile(tcp)

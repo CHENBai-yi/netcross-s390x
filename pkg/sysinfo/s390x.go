@@ -10,10 +10,10 @@ import (
 
 // HardwareProfile summarizes mainframe hardware specifications.
 type HardwareProfile struct {
-	Arch         string `json:"arch"`
-	NumCPU       int    `json:"num_cpu"`
-	MachineType  string `json:"machine_type"`
-	Features     string `json:"features"`
+	Arch           string `json:"arch"`
+	NumCPU         int    `json:"num_cpu"`
+	MachineType    string `json:"machine_type"`
+	Features       string `json:"features"`
 	Virtualization string `json:"virtualization"`
 }
 
