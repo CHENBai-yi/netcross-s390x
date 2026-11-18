@@ -3,6 +3,8 @@ package netbench
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -18,11 +20,15 @@ import (
 func newTestServer(t *testing.T) (*httptest.Server, *int64) {
 	t.Helper()
 	var hits int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&hits, 1)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	}))
+	// Silence the server-side TLS complaint that the certificate-rejection
+	// test provokes on purpose; it is expected noise, not a test failure.
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	srv.Start()
 	t.Cleanup(srv.Close)
 	return srv, &hits
 }
@@ -88,9 +94,11 @@ func TestRunConcurrentPhaseTimingsArePopulated(t *testing.T) {
 }
 
 func TestRunConcurrentTLSPhases(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	srv.StartTLS()
 	defer srv.Close()
 
 	res := RunConcurrent(context.Background(), srv.URL, Config{
@@ -111,7 +119,9 @@ func TestRunConcurrentTLSPhases(t *testing.T) {
 }
 
 func TestRunConcurrentTLSCertificateFailure(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	srv.StartTLS()
 	defer srv.Close()
 
 	// Verification left on: the self-signed cert must be rejected and the
