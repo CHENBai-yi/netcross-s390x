@@ -29,13 +29,10 @@ func main() {
 		os.Exit(0)
 	}
 
-	targets := []struct {
-		URL string
-		TCP string
-	}{
-		{"https://1.1.1.1", "1.1.1.1:443"},
-		{"https://8.8.8.8", "8.8.8.8:443"},
-		{"https://9.9.9.9", "9.9.9.9:443"},
+	targets := []exporter.Target{
+		{URL: "https://1.1.1.1", TCP: "1.1.1.1:443"},
+		{URL: "https://8.8.8.8", TCP: "8.8.8.8:443"},
+		{URL: "https://9.9.9.9", TCP: "9.9.9.9:443"},
 	}
 
 	// Mode 1: Prometheus Metrics HTTP Server
@@ -64,7 +61,11 @@ func main() {
 	// Mode 2: One-shot CLI Prober
 	profile := sysinfo.GetHardwareProfile()
 	endianInfo := endian.Info()
-	report := netbench.RunBenchmark(targets, time.Duration(*timeoutSec)*time.Second)
+	benchTargets := make([]struct{ URL, TCP string }, 0, len(targets))
+	for _, t := range targets {
+		benchTargets = append(benchTargets, struct{ URL, TCP string }{URL: t.URL, TCP: t.TCP})
+	}
+	report := netbench.RunBenchmark(benchTargets, time.Duration(*timeoutSec)*time.Second)
 
 	if *jsonOutput {
 		out := map[string]interface{}{
