@@ -182,17 +182,38 @@ func (e *Exporter) Snapshot() Snapshot {
 	return e.snap
 }
 
+// WriteSnapshot replaces the stored snapshot with externally produced results.
+// It exists so the one-shot CLI can render through exactly the same code path
+// as the daemon: two renderers would drift, and a test against one would say
+// nothing about the other.
+func (e *Exporter) WriteSnapshot(results []netbench.ConcurrentResult,
+	dual []netbench.DualStackResult) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.snap = Snapshot{
+		At:        time.Now(),
+		Results:   results,
+		DualStack: dual,
+		Total:     netbench.AggregateTotal(results),
+		Polls:     e.snap.Polls + 1,
+	}
+}
+
+// Render produces the Prometheus exposition text for the current snapshot.
+func (e *Exporter) Render() string {
+	e.mu.RLock()
+	snap := e.snap
+	e.mu.RUnlock()
+	var b strings.Builder
+	e.render(&b, snap)
+	return b.String()
+}
+
 // Handler returns the HTTP handler serving Prometheus text exposition format.
 func (e *Exporter) Handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		e.mu.RLock()
-		snap := e.snap
-		e.mu.RUnlock()
-
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		var b strings.Builder
-		e.render(&b, snap)
-		_, _ = w.Write([]byte(b.String()))
+		_, _ = w.Write([]byte(e.Render()))
 	}
 }
 
