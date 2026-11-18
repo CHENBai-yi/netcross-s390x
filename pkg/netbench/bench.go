@@ -21,13 +21,13 @@ type ProbeResult struct {
 
 // SummaryReport holds aggregated benchmark metrics.
 type SummaryReport struct {
-	Timestamp      string        `json:"timestamp"`
-	TotalProbes    int           `json:"total_probes"`
-	Successful     int           `json:"successful"`
-	Failed         int           `json:"failed"`
-	AvgTCPConnect  float64       `json:"avg_tcp_connect_ms"`
-	AvgTLSHandshake float64      `json:"avg_tls_handshake_ms"`
-	Results        []ProbeResult `json:"results"`
+	Timestamp       string        `json:"timestamp"`
+	TotalProbes     int           `json:"total_probes"`
+	Successful      int           `json:"successful"`
+	Failed          int           `json:"failed"`
+	AvgTCPConnect   float64       `json:"avg_tcp_connect_ms"`
+	AvgTLSHandshake float64       `json:"avg_tls_handshake_ms"`
+	Results         []ProbeResult `json:"results"`
 }
 
 // ProbeEndpoint measures TCP and TLS handshake durations for a single target.
