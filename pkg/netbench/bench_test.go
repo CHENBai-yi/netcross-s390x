@@ -1,6 +1,8 @@
 package netbench
 
 import (
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -75,7 +77,9 @@ func TestProbeEndpointBadURL(t *testing.T) {
 }
 
 func TestProbeEndpointTLSCertificateRejected(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	srv.StartTLS()
 	defer srv.Close()
 	addr := strings.TrimPrefix(srv.URL, "https://")
 
