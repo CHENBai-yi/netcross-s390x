@@ -36,6 +36,20 @@ type PhaseTiming struct {
 	Total time.Duration `json:"total"`
 }
 
+// Other is the part of Total not covered by the four measured phases: the
+// request write, the HTTP/2 SETTINGS exchange when the server negotiates h2,
+// and scheduler time. It is reported rather than folded into TTFB because an
+// unexplained gap that grows is itself a signal (a stalled SETTINGS ack, a
+// slow proxy), and a phase table whose columns do not add up to its total is
+// worse than one with an honest remainder.
+func (t PhaseTiming) Other() time.Duration {
+	sum := t.DNSResolve + t.TCPConnect + t.TLSHandshake + t.TTFB
+	if sum >= t.Total {
+		return 0
+	}
+	return t.Total - sum
+}
+
 // Add accumulates o into t, which is how per-worker timings are merged.
 func (t *PhaseTiming) Add(o PhaseTiming) {
 	t.DNSResolve += o.DNSResolve
@@ -158,11 +172,16 @@ type ConcurrentResult struct {
 	SuccessRate float64       `json:"success_rate"`
 	Latency     Percentiles   `json:"latency"`
 	// DNSMean is the mean name-resolution time, zero for IP-literal targets.
-	DNSMean float64        `json:"dns_resolve_mean_ms"`
-	TCP     Percentiles    `json:"tcp_connect"`
-	TLS     Percentiles    `json:"tls_handshake"`
-	TTFB    Percentiles    `json:"ttfb"`
-	Errors  map[string]int `json:"errors,omitempty"`
+	DNSMean float64     `json:"dns_resolve_mean_ms"`
+	TCP     Percentiles `json:"tcp_connect"`
+	TLS     Percentiles `json:"tls_handshake"`
+	TTFB    Percentiles `json:"ttfb"`
+	// Other is the mean residual between Total and the four measured phases.
+	OtherMean float64 `json:"other_mean_ms"`
+	// OtherP is the residual distribution, so a growing tail in the
+	// unexplained portion is visible rather than averaged away.
+	Other  Percentiles    `json:"other"`
+	Errors map[string]int `json:"errors,omitempty"`
 }
 
 // Config controls a concurrent benchmark run.
@@ -282,7 +301,10 @@ func newProbeClient(cfg Config) *http.Client {
 			// tool exists to measure.
 			DisableKeepAlives:   true,
 			MaxIdleConnsPerHost: cfg.Concurrency,
-			ForceAttemptHTTP2:   false,
+			// HTTP/2 must be negotiable: Quad9's 9.9.9.9 answers a HTTP/1.1
+			// request with 505 and only speaks h2, so forcing HTTP/1.1 would
+			// report a healthy anycast resolver as a failed probe.
+			ForceAttemptHTTP2: true,
 		},
 	}
 }
@@ -291,12 +313,17 @@ func doRequest(ctx context.Context, client *http.Client, url string, seq int, ti
 	s := Sample{Seq: seq, Started: time.Now()}
 
 	var (
-		t0        = time.Now()
-		dnsStart  time.Time
-		tcpStart  time.Time
-		tlsStart  time.Time
-		gotConn   time.Time
-		firstByte time.Time
+		t0       = time.Now()
+		dnsStart time.Time
+		tcpStart time.Time
+		tlsStart time.Time
+		// connReady marks the moment the connection is usable, i.e. after
+		// the TLS handshake when there is one. TTFB is measured from here so
+		// the four phases partition the request instead of overlapping: for
+		// a TLS target, httptrace fires GotConn *before* the handshake, so
+		// measuring TTFB from GotConn would silently count the handshake
+		// twice and make the columns of the phase table non-additive.
+		connReady time.Time
 	)
 
 	trace := &httptrace.ClientTrace{
@@ -314,17 +341,25 @@ func doRequest(ctx context.Context, client *http.Client, url string, seq int, ti
 		},
 		TLSHandshakeStart: func() { tlsStart = time.Now() },
 		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
-			if err == nil && !tlsStart.IsZero() {
+			if !tlsStart.IsZero() {
 				s.Phases.TLSHandshake = time.Since(tlsStart)
 			}
+			if err == nil {
+				connReady = time.Now()
+			}
 		},
-		GotConn: func(httptrace.GotConnInfo) { gotConn = time.Now() },
+		GotConn: func(httptrace.GotConnInfo) {
+			// Plaintext only: for TLS, TLSHandshakeDone overwrites this with
+			// the later, correct instant.
+			if connReady.IsZero() {
+				connReady = time.Now()
+			}
+		},
 		GotFirstResponseByte: func() {
-			firstByte = time.Now()
-			if !gotConn.IsZero() {
-				s.Phases.TTFB = firstByte.Sub(gotConn)
-			} else if !t0.IsZero() {
-				s.Phases.TTFB = firstByte.Sub(t0)
+			if !connReady.IsZero() {
+				s.Phases.TTFB = time.Since(connReady)
+			} else {
+				s.Phases.TTFB = time.Since(t0)
 			}
 		},
 	}
@@ -428,6 +463,7 @@ func aggregate(res *ConcurrentResult, samples []Sample) {
 	tcp := make([]float64, 0, len(samples))
 	tlsv := make([]float64, 0, len(samples))
 	ttfb := make([]float64, 0, len(samples))
+	other := make([]float64, 0, len(samples))
 
 	for _, s := range samples {
 		if s.OK {
@@ -437,6 +473,7 @@ func aggregate(res *ConcurrentResult, samples []Sample) {
 			tcp = append(tcp, ms(s.Phases.TCPConnect))
 			tlsv = append(tlsv, ms(s.Phases.TLSHandshake))
 			ttfb = append(ttfb, ms(s.Phases.TTFB))
+			other = append(other, ms(s.Phases.Other()))
 		} else {
 			res.Failed++
 			key := s.Err
@@ -453,6 +490,8 @@ func aggregate(res *ConcurrentResult, samples []Sample) {
 	res.TCP = Percentile(tcp)
 	res.TLS = Percentile(tlsv)
 	res.TTFB = Percentile(ttfb)
+	res.Other = Percentile(other)
+	res.OtherMean = res.Other.Mean
 }
 
 // RunMultiTarget runs RunConcurrent against several targets sequentially and

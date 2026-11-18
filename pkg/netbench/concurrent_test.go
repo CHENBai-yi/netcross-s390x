@@ -118,6 +118,57 @@ func TestRunConcurrentTLSPhases(t *testing.T) {
 	}
 }
 
+// TestPhasesPartitionTheRequest asserts the four phases do not overlap, so a
+// reader can add them up. httptrace ordering differs between plaintext and TLS
+// (GotConn fires after the handshake for a fresh TLS conn, before it in some
+// other paths), which is exactly the kind of thing that silently double-counts
+// the handshake if TTFB is measured from the wrong instant.
+func TestPhasesPartitionTheRequest(t *testing.T) {
+	for _, tls := range []bool{false, true} {
+		name := "plaintext"
+		var srv *httptest.Server
+		if tls {
+			name = "tls"
+			srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+			srv.StartTLS()
+		} else {
+			srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			srv.Start()
+		}
+		t.Run(name, func(t *testing.T) {
+			defer srv.Close()
+			cfg := Config{Requests: 5, Concurrency: 1, Timeout: 5 * time.Second,
+				InsecureSkipVerify: tls}
+			client := newProbeClient(cfg)
+			for i := 0; i < 5; i++ {
+				s := doRequest(context.Background(), client, srv.URL, i, cfg.Timeout)
+				if !s.OK {
+					t.Fatalf("request failed: %s", s.Err)
+				}
+				sum := s.Phases.TCPConnect + s.Phases.TLSHandshake + s.Phases.TTFB + s.Phases.DNSResolve
+				// Allow a small margin for the bytes the trace callbacks do
+				// not cover (request write, response headers, scheduling).
+				slack := 5*time.Millisecond + s.Phases.Total/2
+				if sum > s.Phases.Total+slack {
+					t.Fatalf("phases overlap: sum %v > total %v (%s)",
+						sum, s.Phases.Total, s.Phases.Millis())
+				}
+				if tls && s.Phases.TLSHandshake <= 0 {
+					t.Fatalf("tls phase not measured: %s", s.Phases.Millis())
+				}
+				if !tls && s.Phases.TLSHandshake != 0 {
+					t.Fatalf("plaintext request reported a tls phase: %s", s.Phases.Millis())
+				}
+			}
+		})
+	}
+}
+
 func TestRunConcurrentTLSCertificateFailure(t *testing.T) {
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	srv.Config.ErrorLog = log.New(io.Discard, "", 0)
@@ -347,6 +398,23 @@ func TestPercentileString(t *testing.T) {
 }
 
 // --- phase timing helpers ---------------------------------------------
+
+func TestPhaseTimingOther(t *testing.T) {
+	timing := PhaseTiming{
+		TCPConnect: 5 * time.Millisecond,
+		TTFB:       20 * time.Millisecond,
+		Total:      30 * time.Millisecond,
+	}
+	if got := timing.Other(); got != 5*time.Millisecond {
+		t.Fatalf("Other = %v, want 5ms", got)
+	}
+	// A total smaller than the sum (clock granularity) must clamp to zero
+	// rather than report a negative duration.
+	timing.Total = time.Millisecond
+	if got := timing.Other(); got != 0 {
+		t.Fatalf("Other = %v, want 0 when the phases exceed the total", got)
+	}
+}
 
 func TestPhaseTimingAddAndDiv(t *testing.T) {
 	a := PhaseTiming{TCPConnect: 10 * time.Millisecond, TLSHandshake: 20 * time.Millisecond}
