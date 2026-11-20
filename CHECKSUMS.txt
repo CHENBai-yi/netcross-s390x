@@ -1,0 +1,3 @@
+8f7514fc60c688abb52bb0b6e67f2e39fdd2a01ba8702d9446f33a8c83a52290  netcross-linux-amd64
+5daa2157cff852f89c8ff2174816e9721c04990c3afaa931b1aabe8d7a5e5a9d  netcross-linux-arm64
+d5bf0df7810a13b4904912a7cbfba5dbd77ab8db9d8ef99ec220a32e429a95a6  netcross-linux-s390x
