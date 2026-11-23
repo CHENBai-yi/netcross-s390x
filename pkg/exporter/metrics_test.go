@@ -78,6 +78,26 @@ func labelledValue(t *testing.T, body, name, target string) float64 {
 	return 0
 }
 
+// metricWithLabels pulls the value of a metric line carrying an arbitrary
+// label set, given the exact label string to match (for example
+// `target="x",phase="tls"`). It is the general form of labelledValue for
+// series whose labels go beyond a single target.
+func metricWithLabels(t *testing.T, body, name, labels string) float64 {
+	t.Helper()
+	needle := name + "{" + labels + "} "
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, needle) {
+			v, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimPrefix(line, needle)), 64)
+			if err != nil {
+				t.Fatalf("%s: cannot parse value from %q: %v", name, line, err)
+			}
+			return v
+		}
+	}
+	t.Fatalf("metric %s{%s} not found", name, labels)
+	return 0
+}
+
 func newTestExporter(t *testing.T) (*Exporter, string) {
 	t.Helper()
 	tgt, _ := newLocalTarget(t, "local")
@@ -426,6 +446,231 @@ func BenchmarkHandlerScrape(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		rr := httptest.NewRecorder()
 		e.Handler().ServeHTTP(rr, req)
+	}
+}
+
+// handResult builds a ConcurrentResult with fully known percentiles and error
+// counts, so the renderer's arithmetic can be asserted exactly rather than
+// against whatever the local loopback happened to measure. The phase P50s
+// (5+6+8+1) exactly partition the end-to-end P50 (20), which the share-ratio
+// test relies on.
+func handResult(target string) netbench.ConcurrentResult {
+	return netbench.ConcurrentResult{
+		Target:      target,
+		Concurrency: 2,
+		Requests:    10,
+		Succeeded:   9,
+		Failed:      1,
+		SuccessRate: 90,
+		RPS:         5,
+		Latency: netbench.Percentiles{
+			Count: 9, Min: 10, P50: 20, P90: 40, P99: 60, Max: 80, Mean: 30,
+		},
+		TCP: netbench.Percentiles{
+			Count: 9, Min: 1, P50: 5, P90: 9, P99: 15, Max: 20, Mean: 8,
+		},
+		TLS: netbench.Percentiles{
+			Count: 9, Min: 2, P50: 6, P90: 12, P99: 20, Max: 30, Mean: 10,
+		},
+		TTFB: netbench.Percentiles{
+			Count: 9, Min: 3, P50: 8, P90: 18, P99: 28, Max: 40, Mean: 14,
+		},
+		Other: netbench.Percentiles{
+			Count: 9, Min: 1, P50: 1, P90: 1, P99: 1, Max: 1, Mean: 1,
+		},
+		Errors: map[string]int{"timeout": 1},
+	}
+}
+
+func TestExporterPhaseTailPercentiles(t *testing.T) {
+	e := NewExporterWithOptions(Options{Interval: time.Hour})
+	e.WriteSnapshot([]netbench.ConcurrentResult{handResult("srv")}, nil)
+	body := scrape(t, e)
+
+	cases := []struct {
+		metric string
+		want   float64
+	}{
+		{"netcross_tcp_connect_p90_seconds", 0.009},
+		{"netcross_tcp_connect_p99_seconds", 0.015},
+		{"netcross_tls_handshake_p90_seconds", 0.012},
+		{"netcross_tls_handshake_p99_seconds", 0.020},
+		{"netcross_http_ttfb_p90_seconds", 0.018},
+		{"netcross_http_ttfb_p99_seconds", 0.028},
+	}
+	for _, c := range cases {
+		if got := labelledValue(t, body, c.metric, "srv"); got != c.want {
+			t.Errorf("%s = %f, want %f", c.metric, got, c.want)
+		}
+	}
+
+	// Tail ordering P99 >= P90 >= P50 for each phase, read back out of the
+	// exposition text rather than recomputed from the input.
+	for _, phase := range []struct {
+		p50, p90, p99 string
+	}{
+		{"netcross_tcp_connect_seconds", "netcross_tcp_connect_p90_seconds", "netcross_tcp_connect_p99_seconds"},
+		{"netcross_tls_handshake_seconds", "netcross_tls_handshake_p90_seconds", "netcross_tls_handshake_p99_seconds"},
+		{"netcross_http_ttfb_seconds", "netcross_http_ttfb_p90_seconds", "netcross_http_ttfb_p99_seconds"},
+	} {
+		p50 := labelledValue(t, body, phase.p50, "srv")
+		p90 := labelledValue(t, body, phase.p90, "srv")
+		p99 := labelledValue(t, body, phase.p99, "srv")
+		if p90 < p50 {
+			t.Errorf("%s: p90 %f < p50 %f", phase.p90, p90, p50)
+		}
+		if p99 < p90 {
+			t.Errorf("%s: p99 %f < p90 %f", phase.p99, p99, p90)
+		}
+	}
+}
+
+func TestExporterPhaseShareRatios(t *testing.T) {
+	e := NewExporterWithOptions(Options{Interval: time.Hour})
+	e.WriteSnapshot([]netbench.ConcurrentResult{handResult("srv")}, nil)
+	body := scrape(t, e)
+
+	want := map[string]float64{
+		"tcp":   5.0 / 20.0,
+		"tls":   6.0 / 20.0,
+		"ttfb":  8.0 / 20.0,
+		"other": 1.0 / 20.0,
+	}
+	sum := 0.0
+	for phase, ratio := range want {
+		got := metricWithLabels(t, body, "netcross_phase_share_ratio",
+			`target="srv",phase="`+phase+`"`)
+		if got-ratio > 1e-9 || ratio-got > 1e-9 {
+			t.Errorf("share ratio phase=%s = %f, want %f", phase, got, ratio)
+		}
+		sum += got
+	}
+	if sum < 0.999 || sum > 1.001 {
+		t.Errorf("share ratios sum = %f, want 1.0 ± 0.001", sum)
+	}
+}
+
+func TestExporterPhaseShareRatioClamping(t *testing.T) {
+	// A phase whose P50 exceeds the end-to-end P50 must be clamped to 1,
+	// not reported above 1.
+	clamped := netbench.ConcurrentResult{
+		Target:   "clamped",
+		Requests: 10, Succeeded: 10, Failed: 0,
+		Latency: netbench.Percentiles{Count: 10, P50: 10},
+		TCP:     netbench.Percentiles{Count: 10, P50: 15}, // exceeds total
+		TLS:     netbench.Percentiles{Count: 10, P50: 10},
+		TTFB:    netbench.Percentiles{Count: 10, P50: 10},
+		Other:   netbench.Percentiles{Count: 10, P50: 0},
+	}
+	e := NewExporterWithOptions(Options{Interval: time.Hour})
+	e.WriteSnapshot([]netbench.ConcurrentResult{clamped}, nil)
+	body := scrape(t, e)
+
+	for _, phase := range []string{"tcp", "tls", "ttfb", "other"} {
+		got := metricWithLabels(t, body, "netcross_phase_share_ratio",
+			`target="clamped",phase="`+phase+`"`)
+		if got > 1.0+1e-9 {
+			t.Errorf("share ratio phase=%s = %f, want clamped to <= 1", phase, got)
+		}
+		if got < 0 {
+			t.Errorf("share ratio phase=%s = %f, want >= 0", phase, got)
+		}
+	}
+	// TCP's raw share is 15/10 = 1.5; it must render as exactly 1.
+	if got := metricWithLabels(t, body, "netcross_phase_share_ratio",
+		`target="clamped",phase="tcp"`); got != 1.0 {
+		t.Errorf("tcp share = %f, want 1 (clamped from 1.5)", got)
+	}
+}
+
+func TestExporterPhaseMeasuredZeroVsAbsent(t *testing.T) {
+	// A plaintext target has no TLS phase: netbench records a zero TLS
+	// duration for every request, so the TLS tail must still be present (at
+	// 0) while phase_measured reports that it was never measured.
+	plain := netbench.ConcurrentResult{
+		Target:   "plain",
+		Requests: 4, Succeeded: 4, Failed: 0,
+		Latency: netbench.Percentiles{Count: 4, Min: 10, P50: 20, P90: 40, P99: 60, Max: 80, Mean: 30},
+		TCP:     netbench.Percentiles{Count: 4, Min: 1, P50: 5, P90: 9, P99: 15, Max: 20, Mean: 8},
+		TLS:     netbench.Percentiles{Count: 4, Min: 0, P50: 0, P90: 0, P99: 0, Max: 0, Mean: 0},
+		TTFB:    netbench.Percentiles{Count: 4, Min: 3, P50: 8, P90: 18, P99: 28, Max: 40, Mean: 14},
+		Other:   netbench.Percentiles{Count: 4, Min: 7, P50: 7, P90: 7, P99: 7, Max: 7, Mean: 7},
+	}
+	e := NewExporterWithOptions(Options{Interval: time.Hour})
+	e.WriteSnapshot([]netbench.ConcurrentResult{plain}, nil)
+	body := scrape(t, e)
+
+	if got := metricWithLabels(t, body, "netcross_phase_measured",
+		`target="plain",phase="tls"`); got != 0 {
+		t.Errorf("phase_measured tls = %f, want 0 (plaintext target has no TLS phase)", got)
+	}
+	if got := metricWithLabels(t, body, "netcross_phase_measured",
+		`target="plain",phase="tcp"`); got != 1 {
+		t.Errorf("phase_measured tcp = %f, want 1", got)
+	}
+	// The TLS tail must still be present, at 0, not omitted.
+	for _, m := range []string{
+		"netcross_tls_handshake_p90_seconds",
+		"netcross_tls_handshake_p99_seconds",
+	} {
+		if got := labelledValue(t, body, m, "plain"); got != 0 {
+			t.Errorf("%s = %f, want 0 but still present", m, got)
+		}
+	}
+}
+
+func TestExporterProbeErrorRate(t *testing.T) {
+	errTarget := netbench.ConcurrentResult{
+		Target:   "err",
+		Requests: 10, Succeeded: 7, Failed: 3,
+		Errors: map[string]int{"timeout": 2, "eof": 1},
+	}
+	zeroTarget := netbench.ConcurrentResult{Target: "zero"} // 0 requests
+
+	e := NewExporterWithOptions(Options{Interval: time.Hour})
+	e.WriteSnapshot([]netbench.ConcurrentResult{errTarget, zeroTarget}, nil)
+	body := scrape(t, e)
+
+	if got := labelledValue(t, body, "netcross_probe_error_rate", "err"); got != 0.3 {
+		t.Errorf("error rate = %f, want 0.3", got)
+	}
+	if got := labelledValue(t, body, "netcross_probe_error_rate", "zero"); got != 0 {
+		t.Errorf("error rate for zero-request target = %f, want 0", got)
+	}
+	if got := metricWithLabels(t, body, "netcross_probe_error_ratio_by_reason",
+		`target="err",reason="timeout"`); got != 0.2 {
+		t.Errorf("error ratio by reason timeout = %f, want 0.2", got)
+	}
+	if got := metricWithLabels(t, body, "netcross_probe_error_ratio_by_reason",
+		`target="err",reason="eof"`); got != 0.1 {
+		t.Errorf("error ratio by reason eof = %f, want 0.1", got)
+	}
+	// No NaN/Inf from a divide by zero.
+	for _, bad := range []string{"NaN", "+Inf", "-Inf"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("scrape contains %q; error-rate math produced a non-finite value", bad)
+		}
+	}
+}
+
+func TestExporterPhaseMetricsRegression(t *testing.T) {
+	// The pre-existing series must keep their exact values; dashboards and
+	// saved queries depend on them.
+	e := NewExporterWithOptions(Options{Interval: time.Hour})
+	e.WriteSnapshot([]netbench.ConcurrentResult{handResult("srv")}, nil)
+	body := scrape(t, e)
+
+	if got := labelledValue(t, body, "netcross_probe_latency_p50_seconds", "srv"); got != 0.020 {
+		t.Errorf("latency p50 = %f, want 0.020", got)
+	}
+	if got := labelledValue(t, body, "netcross_probe_success_rate", "srv"); got != 0.9 {
+		t.Errorf("success rate = %f, want 0.9", got)
+	}
+	if got := labelledValue(t, body, "netcross_probe_tcp_connect_seconds", "srv"); got != 0.005 {
+		t.Errorf("v0.2 tcp alias = %f, want 0.005", got)
+	}
+	if got := labelledValue(t, body, "netcross_probe_tls_handshake_seconds", "srv"); got != 0.006 {
+		t.Errorf("v0.2 tls alias = %f, want 0.006", got)
 	}
 }
 

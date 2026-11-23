@@ -348,6 +348,107 @@ func (e *Exporter) render(b *strings.Builder, snap Snapshot) {
 	}
 	b.WriteString("\n")
 
+	// --- per-phase tail percentiles -------------------------------------
+	// P50 hides the failure mode this tool exists to expose: on a shared
+	// LPAR a phase can look healthy at the median while its tail is
+	// dominated by stolen vCPU cycles, so the P90/P99 tail of each phase is
+	// emitted alongside the P50 above.
+	//
+	// A phase that was never measured is still emitted, at 0, rather than
+	// skipped: in Prometheus an absent series reads as "no data for this
+	// target", while a zero reads as "measured, and it took zero". The
+	// companion netcross_phase_measured gauge is what lets a query tell the
+	// two apart — a zero with measured=0 means "not measured", a zero with
+	// measured=1 means "measured and genuinely zero".
+	writeHelp(b, "netcross_phase_measured", "1 when the phase produced at least one non-zero measurement in the last cycle", "gauge")
+	for _, r := range snap.Results {
+		for _, ph := range []struct {
+			name string
+			p    netbench.Percentiles
+		}{
+			{"tcp", r.TCP},
+			{"tls", r.TLS},
+			{"ttfb", r.TTFB},
+		} {
+			fmt.Fprintf(b, "netcross_phase_measured{target=%q,phase=%q} %d\n",
+				r.Target, ph.name, boolToInt(phaseMeasured(ph.p)))
+		}
+	}
+	b.WriteString("\n")
+
+	writeHelp(b, "netcross_tcp_connect_p90_seconds", "90th percentile TCP handshake duration (SYN to SYN-ACK)", "gauge")
+	for _, r := range snap.Results {
+		fmt.Fprintf(b, "netcross_tcp_connect_p90_seconds{target=%q} %.6f\n", r.Target, r.TCP.P90/1000)
+	}
+	b.WriteString("\n")
+
+	writeHelp(b, "netcross_tcp_connect_p99_seconds", "99th percentile TCP handshake duration (SYN to SYN-ACK)", "gauge")
+	for _, r := range snap.Results {
+		fmt.Fprintf(b, "netcross_tcp_connect_p99_seconds{target=%q} %.6f\n", r.Target, r.TCP.P99/1000)
+	}
+	b.WriteString("\n")
+
+	writeHelp(b, "netcross_tls_handshake_p90_seconds", "90th percentile TLS handshake duration through Finished", "gauge")
+	for _, r := range snap.Results {
+		fmt.Fprintf(b, "netcross_tls_handshake_p90_seconds{target=%q} %.6f\n", r.Target, r.TLS.P90/1000)
+	}
+	b.WriteString("\n")
+
+	writeHelp(b, "netcross_tls_handshake_p99_seconds", "99th percentile TLS handshake duration through Finished", "gauge")
+	for _, r := range snap.Results {
+		fmt.Fprintf(b, "netcross_tls_handshake_p99_seconds{target=%q} %.6f\n", r.Target, r.TLS.P99/1000)
+	}
+	b.WriteString("\n")
+
+	writeHelp(b, "netcross_http_ttfb_p90_seconds", "90th percentile time from completed handshake to first response byte", "gauge")
+	for _, r := range snap.Results {
+		fmt.Fprintf(b, "netcross_http_ttfb_p90_seconds{target=%q} %.6f\n", r.Target, r.TTFB.P90/1000)
+	}
+	b.WriteString("\n")
+
+	writeHelp(b, "netcross_http_ttfb_p99_seconds", "99th percentile time from completed handshake to first response byte", "gauge")
+	for _, r := range snap.Results {
+		fmt.Fprintf(b, "netcross_http_ttfb_p99_seconds{target=%q} %.6f\n", r.Target, r.TTFB.P99/1000)
+	}
+	b.WriteString("\n")
+
+	// --- phase share of the round trip ----------------------------------
+	// Each phase's P50 as a fraction of the end-to-end P50, so a query can
+	// answer "which phase owns the round trip" directly instead of doing
+	// arithmetic in Grafana. DNS is deliberately excluded: it is reported
+	// as a mean, not a percentile, so it has no P50 to divide by. The ratio
+	// is clamped to [0,1] because the per-phase P50s are not guaranteed to
+	// sum to the end-to-end P50 — nearest-rank percentiles of different
+	// distributions do not necessarily add, and a single phase can exceed
+	// the total on its own.
+	writeHelp(b, "netcross_phase_share_ratio", "Phase P50 as a fraction of end-to-end P50 latency, clamped to [0,1]", "gauge")
+	for _, r := range snap.Results {
+		total := r.Latency.P50
+		for _, ph := range []struct {
+			phase string
+			p50   float64
+		}{
+			{"tcp", r.TCP.P50},
+			{"tls", r.TLS.P50},
+			{"ttfb", r.TTFB.P50},
+			{"other", r.Other.P50},
+		} {
+			share := 0.0
+			if total > 0 {
+				share = ph.p50 / total
+				if share > 1 {
+					share = 1
+				}
+				if share < 0 {
+					share = 0
+				}
+			}
+			fmt.Fprintf(b, "netcross_phase_share_ratio{target=%q,phase=%q} %.6f\n",
+				r.Target, ph.phase, share)
+		}
+	}
+	b.WriteString("\n")
+
 	// --- dual-stack per target --------------------------------------------
 	writeHelp(b, "netcross_target_has_ipv4", "1 when the target resolves to an IPv4 address", "gauge")
 	for _, d := range snap.DualStack {
@@ -382,6 +483,42 @@ func (e *Exporter) render(b *strings.Builder, snap Snapshot) {
 		b.WriteString("\n")
 	}
 
+	// --- per-target error rate -------------------------------------------
+	// Failed/Requests as a fraction, and each reason's share of the requests
+	// issued, so a query can see both how often a target fails and why. Both
+	// are emitted for every target even when the target had no failures, so
+	// a zero error rate is a real zero rather than an absent series.
+	writeHelp(b, "netcross_probe_error_rate", "Fraction of requests that failed, 0 when no requests were issued", "gauge")
+	for _, r := range snap.Results {
+		rate := 0.0
+		if r.Requests > 0 {
+			rate = float64(r.Failed) / float64(r.Requests)
+		}
+		fmt.Fprintf(b, "netcross_probe_error_rate{target=%q} %.6f\n", r.Target, rate)
+	}
+	b.WriteString("\n")
+
+	writeHelp(b, "netcross_probe_error_ratio_by_reason", "Each classified error reason's share of the target's requests", "gauge")
+	for _, r := range snap.Results {
+		if len(r.Errors) == 0 {
+			continue
+		}
+		keys := make([]string, 0, len(r.Errors))
+		for k := range r.Errors {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys) // stable output ordering keeps diffs readable
+		for _, k := range keys {
+			ratio := 0.0
+			if r.Requests > 0 {
+				ratio = float64(r.Errors[k]) / float64(r.Requests)
+			}
+			fmt.Fprintf(b, "netcross_probe_error_ratio_by_reason{target=%q,reason=%q} %.6f\n",
+				r.Target, k, ratio)
+		}
+	}
+	b.WriteString("\n")
+
 	// --- scrape metadata ---------------------------------------------------
 	writeHelp(b, "netcross_last_collect_timestamp_seconds", "Unix time of the last completed collection cycle", "gauge")
 	if snap.At.IsZero() {
@@ -400,6 +537,19 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+// phaseMeasured reports whether a phase produced at least one non-zero
+// measurement in the last cycle. Count alone is not a sufficient signal: a
+// plaintext target never fires the TLS handshake callbacks, so netbench still
+// records one sample per successful request for the TLS phase — every one of
+// them zero. Treating that as "measured" would report a plaintext target as
+// having a measured zero-length TLS handshake, which is exactly the
+// zero-vs-absent confusion netcross_phase_measured exists to prevent. A
+// positive Max means at least one sample carried a real duration, i.e. the
+// phase actually ran.
+func phaseMeasured(p netbench.Percentiles) bool {
+	return p.Max > 0
 }
 
 // endiannessName is a short tag for the system_info label, since the full
