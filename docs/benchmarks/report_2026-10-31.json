@@ -1,0 +1,41 @@
+{
+  "endian": "Arch: linux/s390x | Endianness: Big-Endian (BE - IBM s390x native)",
+  "hardware": {
+    "arch": "s390x",
+    "num_cpu": 2,
+    "machine_type": "9175",
+    "features": "esan3 zarch stfle msa ldisp eimm dfp edat etf3eh highgprs te vx vxd vxe gs vxe2 vxp sort dflt vxp2 nnpa sie",
+    "virtualization": ""
+  },
+  "report": {
+    "timestamp": "2026-10-31T10:01:34Z",
+    "total_probes": 3,
+    "successful": 3,
+    "failed": 0,
+    "avg_tcp_connect_ms": 13.274000000000001,
+    "avg_tls_handshake_ms": 85.89999999999999,
+    "results": [
+      {
+        "target": "1.1.1.1:443",
+        "tcp_connect_ms": 13.125,
+        "tls_handshake_ms": 124.443,
+        "http_status": 200,
+        "success": true
+      },
+      {
+        "target": "8.8.8.8:443",
+        "tcp_connect_ms": 10.249,
+        "tls_handshake_ms": 93.053,
+        "http_status": 200,
+        "success": true
+      },
+      {
+        "target": "9.9.9.9:443",
+        "tcp_connect_ms": 16.448,
+        "tls_handshake_ms": 40.204,
+        "http_status": 505,
+        "success": true
+      }
+    ]
+  }
+}

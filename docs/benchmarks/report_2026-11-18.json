@@ -1,0 +1,295 @@
+{
+  "dual_stack": {
+    "ipv6_enabled": true,
+    "ipv6_global": false,
+    "ipv4_enabled": true,
+    "preferred": "ipv4",
+    "interfaces": [
+      {
+        "Address": "fe80::a1:41ff:feb2:303a",
+        "IfIndex": 3,
+        "PrefixLen": 64,
+        "Scope": 32,
+        "Flags": 128,
+        "Name": "enc1000"
+      },
+      {
+        "Address": "::1",
+        "IfIndex": 1,
+        "PrefixLen": 128,
+        "Scope": 16,
+        "Flags": 128,
+        "Name": "lo"
+      }
+    ],
+    "ipv4_addrs": [
+      "148.100.76.209"
+    ]
+  },
+  "dual_targets": [
+    {
+      "target": "cloudflare-dns",
+      "has_ipv4": true,
+      "has_ipv6": false,
+      "preferred": "ipv4",
+      "ipv4_addr": "1.1.1.1:443",
+      "ipv4_rtt_ns": 17579128
+    },
+    {
+      "target": "google-dns",
+      "has_ipv4": true,
+      "has_ipv6": false,
+      "preferred": "ipv4",
+      "ipv4_addr": "8.8.8.8:443",
+      "ipv4_rtt_ns": 10208140
+    },
+    {
+      "target": "quad9-dns",
+      "has_ipv4": true,
+      "has_ipv6": false,
+      "preferred": "ipv4",
+      "ipv4_addr": "9.9.9.9:443",
+      "ipv4_rtt_ns": 12155984
+    }
+  ],
+  "endian": "Arch: linux/s390x | Endianness: Big-Endian (BE - IBM s390x native)",
+  "hardware": {
+    "arch": "s390x",
+    "num_cpu": 2,
+    "machine_type": "9175",
+    "features": "esan3 zarch stfle msa ldisp eimm dfp edat etf3eh highgprs te vx vxd vxe gs vxe2 vxp sort dflt vxp2 nnpa sie",
+    "virtualization": ""
+  },
+  "report": {
+    "target": "all",
+    "concurrency": 0,
+    "requests": 30,
+    "succeeded": 30,
+    "failed": 0,
+    "duration_ns": 2080399658,
+    "requests_per_second": 49.97587505328154,
+    "success_rate": 100,
+    "latency": {
+      "count": 0,
+      "min_ms": 0,
+      "p50_ms": 0,
+      "p90_ms": 0,
+      "p99_ms": 0,
+      "max_ms": 0,
+      "mean_ms": 0
+    },
+    "dns_resolve_mean_ms": 0,
+    "tcp_connect": {
+      "count": 0,
+      "min_ms": 0,
+      "p50_ms": 0,
+      "p90_ms": 0,
+      "p99_ms": 0,
+      "max_ms": 0,
+      "mean_ms": 0
+    },
+    "tls_handshake": {
+      "count": 0,
+      "min_ms": 0,
+      "p50_ms": 0,
+      "p90_ms": 0,
+      "p99_ms": 0,
+      "max_ms": 0,
+      "mean_ms": 0
+    },
+    "ttfb": {
+      "count": 0,
+      "min_ms": 0,
+      "p50_ms": 0,
+      "p90_ms": 0,
+      "p99_ms": 0,
+      "max_ms": 0,
+      "mean_ms": 0
+    },
+    "other_mean_ms": 0,
+    "other": {
+      "count": 0,
+      "min_ms": 0,
+      "p50_ms": 0,
+      "p90_ms": 0,
+      "p99_ms": 0,
+      "max_ms": 0,
+      "mean_ms": 0
+    }
+  },
+  "targets": [
+    {
+      "target": "cloudflare-dns",
+      "concurrency": 1,
+      "requests": 10,
+      "succeeded": 10,
+      "failed": 0,
+      "duration_ns": 892322026,
+      "requests_per_second": 11.206716531280604,
+      "success_rate": 100,
+      "latency": {
+        "count": 10,
+        "min_ms": 78.161,
+        "p50_ms": 84.504,
+        "p90_ms": 90.979,
+        "p99_ms": 118.058,
+        "max_ms": 118.058,
+        "mean_ms": 88.2637
+      },
+      "dns_resolve_mean_ms": 1.4858999999999998,
+      "tcp_connect": {
+        "count": 10,
+        "min_ms": 8.163,
+        "p50_ms": 8.352,
+        "p90_ms": 9.472,
+        "p99_ms": 9.652,
+        "max_ms": 9.652,
+        "mean_ms": 8.5851
+      },
+      "tls_handshake": {
+        "count": 10,
+        "min_ms": 9.574,
+        "p50_ms": 10.226,
+        "p90_ms": 10.969,
+        "p99_ms": 10.998,
+        "max_ms": 10.998,
+        "mean_ms": 10.2527
+      },
+      "ttfb": {
+        "count": 10,
+        "min_ms": 24.795,
+        "p50_ms": 30.419,
+        "p90_ms": 35.214,
+        "p99_ms": 36.593,
+        "max_ms": 36.593,
+        "mean_ms": 30.1224
+      },
+      "other_mean_ms": 37.8156,
+      "other": {
+        "count": 10,
+        "min_ms": 31.528,
+        "p50_ms": 34.786,
+        "p90_ms": 40.163,
+        "p99_ms": 54.564,
+        "max_ms": 54.564,
+        "mean_ms": 37.8156
+      }
+    },
+    {
+      "target": "google-dns",
+      "concurrency": 1,
+      "requests": 10,
+      "succeeded": 10,
+      "failed": 0,
+      "duration_ns": 809521874,
+      "requests_per_second": 12.352970711696916,
+      "success_rate": 100,
+      "latency": {
+        "count": 10,
+        "min_ms": 77.176,
+        "p50_ms": 79.025,
+        "p90_ms": 80.507,
+        "p99_ms": 97.893,
+        "max_ms": 97.893,
+        "mean_ms": 80.86210000000001
+      },
+      "dns_resolve_mean_ms": 1.4307000000000003,
+      "tcp_connect": {
+        "count": 10,
+        "min_ms": 9.538,
+        "p50_ms": 9.916,
+        "p90_ms": 10.229,
+        "p99_ms": 10.292,
+        "max_ms": 10.292,
+        "mean_ms": 9.890899999999998
+      },
+      "tls_handshake": {
+        "count": 10,
+        "min_ms": 16.933,
+        "p50_ms": 17.344,
+        "p90_ms": 18.088,
+        "p99_ms": 18.829,
+        "max_ms": 18.829,
+        "mean_ms": 17.583199999999998
+      },
+      "ttfb": {
+        "count": 10,
+        "min_ms": 10.503,
+        "p50_ms": 10.929,
+        "p90_ms": 11.61,
+        "p99_ms": 12.275,
+        "max_ms": 12.275,
+        "mean_ms": 11.1413
+      },
+      "other_mean_ms": 40.813900000000004,
+      "other": {
+        "count": 10,
+        "min_ms": 38.772,
+        "p50_ms": 40.171,
+        "p90_ms": 41.8,
+        "p99_ms": 46.893,
+        "max_ms": 46.893,
+        "mean_ms": 40.813900000000004
+      }
+    },
+    {
+      "target": "quad9-dns",
+      "concurrency": 1,
+      "requests": 10,
+      "succeeded": 10,
+      "failed": 0,
+      "duration_ns": 378555758,
+      "requests_per_second": 26.416187810304024,
+      "success_rate": 100,
+      "latency": {
+        "count": 10,
+        "min_ms": 36.943,
+        "p50_ms": 37.876,
+        "p90_ms": 38.431,
+        "p99_ms": 38.498,
+        "max_ms": 38.498,
+        "mean_ms": 37.8417
+      },
+      "dns_resolve_mean_ms": 0,
+      "tcp_connect": {
+        "count": 10,
+        "min_ms": 11.774,
+        "p50_ms": 12.165,
+        "p90_ms": 12.337,
+        "p99_ms": 12.363,
+        "max_ms": 12.363,
+        "mean_ms": 12.1303
+      },
+      "tls_handshake": {
+        "count": 10,
+        "min_ms": 13.241,
+        "p50_ms": 13.522,
+        "p90_ms": 13.598,
+        "p99_ms": 13.745,
+        "max_ms": 13.745,
+        "mean_ms": 13.484199999999998
+      },
+      "ttfb": {
+        "count": 10,
+        "min_ms": 11.824,
+        "p50_ms": 12.192,
+        "p90_ms": 12.344,
+        "p99_ms": 12.399,
+        "max_ms": 12.399,
+        "mean_ms": 12.147300000000001
+      },
+      "other_mean_ms": 0.0779,
+      "other": {
+        "count": 10,
+        "min_ms": 0.052,
+        "p50_ms": 0.068,
+        "p90_ms": 0.11,
+        "p99_ms": 0.136,
+        "max_ms": 0.136,
+        "mean_ms": 0.0779
+      }
+    }
+  ],
+  "timestamp": "2026-11-18T08:43:32Z",
+  "version": "0.3.0"
+}
