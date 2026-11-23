@@ -1,2 +1,4 @@
 netcross
 bin/
+docs/benchmarks/report_*.json
+docs/benchmarks/report_*.md
