@@ -35,12 +35,21 @@ The project is standard-library only — no third-party modules, no `go.sum`.
   measurement. Address-family capability is read from `/proc/net/if_inet6`
   directly, so "IPv6 is enabled" and "IPv6 can actually reach a peer" are
   reported as two different facts.
-- **Prometheus exporter** — 28 metric families covering latency percentiles,
-  phase timings, throughput, concurrency, dual-stack state and error reasons.
-  The v0.2 series names are still emitted as aliases.
+- **Prometheus exporter** — 39 metric families covering latency percentiles,
+  phase timings and their tails, phase share ratios, throughput, concurrency,
+  dual-stack state and error reasons. The v0.2 series names are still emitted as
+  aliases.
+- **Foreign byte-order diagnosis** — a received frame that fails to decode is
+  audited under both byte orders: the magic word and the payload length act as
+  two independent witnesses, so a peer that serialised with host byte order is
+  named as such instead of being reported as `bad magic`. Works on every
+  architecture because host order is derived from a runtime probe, not assumed.
 - **Mainframe hardware discovery** — parses `/proc/cpuinfo` for the machine type
-  (`9175` on the guest this is developed on) and the facility list
-  (`zarch msa vx vxe2 nnpa …`).
+  (`9175` on the guest this is developed on), the named feature list
+  (`zarch msa vx vxe2 nnpa …`) and the numeric STFLE **facility bitmap**, which
+  is decoded into a `FacilitySet` so `HasVector()`, `HasNNPA()`, `HasSIE()` and
+  friends answer "will this instruction trap here" rather than "what string did
+  the kernel print".
 - **CI on three architectures** — `linux/amd64`, `linux/arm64`, `linux/s390x`
   builds plus a `gofmt` gate, `go vet` and a `-race` test run.
 
@@ -386,7 +395,7 @@ Address family reachability
 
 ## 📊 Prometheus Metrics
 
-`netcross -listen :9100` serves `text/plain; version=0.0.4`. 28 metric families:
+`netcross -listen :9100` serves `text/plain; version=0.0.4`. 39 metric families:
 
 ### System & capability
 
@@ -427,6 +436,22 @@ Address family reachability
 | `netcross_http_ttfb_seconds` | gauge | Usable connection → first response byte (p50) |
 | `netcross_dns_resolve_seconds` | gauge | Mean name resolution; 0 for IP literals |
 
+### Phase tails `{target}`
+
+| Metric | Type | Description |
+|---|---|---|
+| `netcross_tcp_connect_p90_seconds` / `_p99_` | gauge | TCP handshake tail |
+| `netcross_tls_handshake_p90_seconds` / `_p99_` | gauge | TLS handshake tail |
+| `netcross_http_ttfb_p90_seconds` / `_p99_` | gauge | TTFB tail |
+| `netcross_phase_measured{phase="tcp\|tls\|ttfb"}` | gauge | 1 when the phase produced a non-zero measurement |
+| `netcross_phase_share_ratio{phase="tcp\|tls\|ttfb\|other"}` | gauge | Phase p50 as a fraction of end-to-end p50, clamped to `[0,1]` |
+
+The tail matters more than the median on a shared LPAR: a vCPU steal moves P99
+long before it moves P50, so a phase can look healthy at the median while its
+tail is dominated by stolen cycles. A phase that was never measured (no TLS on a
+plaintext target) is emitted at `0` with `netcross_phase_measured` at `0`, so a
+query can tell "not measured" from "measured and genuinely zero".
+
 ### Throughput & concurrency `{target}`
 
 | Metric | Type | Description |
@@ -436,6 +461,8 @@ Address family reachability
 | `netcross_probe_concurrency` | gauge | Worker-pool size used |
 | `netcross_probe_success_rate` | gauge | Success fraction, 0–1 |
 | `netcross_probe_success` | gauge | 1 when the target had zero failures |
+| `netcross_probe_error_rate` | gauge | Failed/requests as a fraction, 0 when no requests were issued |
+| `netcross_probe_error_ratio_by_reason{reason}` | gauge | Per-target share of requests by classified failure reason |
 
 ### Dual-stack `{target}`
 
