@@ -290,6 +290,7 @@ func emitText(profile sysinfo.HardwareProfile, dual sysinfo.DualStack,
 	fmt.Printf("Version           : v%s\n", version)
 	fmt.Printf("Arch / Endianness : %s\n", endian.Info())
 	fmt.Printf("CPU Topology      : %d Cores | Machine: %s\n", profile.NumCPU, profile.MachineType)
+	fmt.Printf("Facilities        : %s\n", profile.Facilities.Summary().String())
 	fmt.Printf("Addressing        : %s\n", dual.Summary())
 	fmt.Printf("Load              : %d requests/target | concurrency %d | timeout %ds\n",
 		o.requests, o.concurrency, o.timeoutSec)

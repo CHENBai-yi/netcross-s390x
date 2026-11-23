@@ -218,3 +218,96 @@ func TestHardwareProfileOnS390x(t *testing.T) {
 		t.Errorf("s390x feature list missing zarch: %q", p.Features)
 	}
 }
+
+// --- STFLE facility parsing --------------------------------------------------
+
+func TestParseCPUInfoFixture(t *testing.T) {
+	p := ParseCPUInfo(strings.NewReader(realCPUInfoFixture))
+
+	if p.MachineType != "9175" {
+		t.Errorf("MachineType = %q, want 9175", p.MachineType)
+	}
+	// NumCPU is a runtime property; the parser must not derive it from the
+	// "# processors" line.
+	if p.NumCPU != 0 {
+		t.Errorf("NumCPU = %d from ParseCPUInfo, want 0 (runtime-owned)", p.NumCPU)
+	}
+
+	if p.Facilities.Count() != 97 {
+		t.Errorf("FacilitySet.Count() = %d, want 97", p.Facilities.Count())
+	}
+	if p.FacilityCount != 97 {
+		t.Errorf("FacilityCount = %d, want 97", p.FacilityCount)
+	}
+
+	for _, n := range []int{129, 135, 165, 42, 134, 148, 133, 76} {
+		if !p.Facilities.Has(n) {
+			t.Errorf("Has(%d) = false, want true", n)
+		}
+	}
+	// Facility 5 (SIE) and 10 are holes in this host's bitmap: the `features`
+	// line names "sie", but bit 5 is not set in the STFLE list.
+	if p.Facilities.Has(5) {
+		t.Error("Has(5) = true, want false (5 is a hole in the facilities list)")
+	}
+	if p.Facilities.Has(10) {
+		t.Error("Has(10) = true, want false (10 is a hole in the list, not shifted)")
+	}
+
+	nums := p.Facilities.Numbers()
+	for i := 1; i < len(nums); i++ {
+		if nums[i] <= nums[i-1] {
+			t.Fatalf("Numbers() not strictly ascending at index %d: %d <= %d", i, nums[i], nums[i-1])
+		}
+	}
+
+	want := "0-4,6-9,12,14-28,30-38,40-55,57-61,69-77,80-82,84-87,129-131,133-135,146-148,150-152,155-156,165,168,170,192-194,196-201"
+	if got := p.Facilities.Ranges(); got != want {
+		t.Errorf("Ranges() = %q, want %q", got, want)
+	}
+}
+
+func TestParseCPUInfoIgnoresCacheAndProcessorLines(t *testing.T) {
+	// cache0, processor 0, cpu number and cpu MHz dynamic all contain ':' and
+	// one of them mentions "machine"; a naive prefix match misfires on them.
+	// The parser must key on the exact top-level key only.
+	input := `cache0          : level=1 type=Data scope=Private size=128K line_size=256 associativity=8
+processor 0: version = FF,  identification = 09DFD8,  machine = 9175
+cpu number      : 0
+cpu MHz dynamic : 5508
+machine         : 9175
+`
+	p := ParseCPUInfo(strings.NewReader(input))
+	if p.MachineType != "9175" {
+		t.Errorf("MachineType = %q, want 9175", p.MachineType)
+	}
+}
+
+func TestParseCPUInfoEmpty(t *testing.T) {
+	p := ParseCPUInfo(strings.NewReader(""))
+	if p.MachineType != "generic-s390x" {
+		t.Errorf("MachineType = %q, want generic-s390x", p.MachineType)
+	}
+	if p.Facilities.Count() != 0 {
+		t.Errorf("Facilities.Count() = %d, want 0", p.Facilities.Count())
+	}
+}
+
+func TestParseCPUInfoNoFacilities(t *testing.T) {
+	// An amd64-style /proc/cpuinfo has no facilities line; the parser must
+	// yield an empty FacilitySet rather than panic.
+	input := `vendor_id       : GenuineIntel
+model name      : Intel(R) Xeon(R) CPU
+flags           : fpu vme de pse tsc msr pae
+`
+	p := ParseCPUInfo(strings.NewReader(input))
+	if p.Facilities.Count() != 0 {
+		t.Errorf("Facilities.Count() = %d, want 0", p.Facilities.Count())
+	}
+	if p.Facilities.Has(129) {
+		t.Error("Has(129) = true on a host with no facilities line")
+	}
+	if p.FacilityCount != 0 {
+		t.Errorf("FacilityCount = %d, want 0", p.FacilityCount)
+	}
+}
